@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35806.99 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Barkod", "Barkod\Barkod.csproj", "{594A6DFB-8302-425E-A07B-53390B78D54C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{594A6DFB-8302-425E-A07B-53390B78D54C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{594A6DFB-8302-425E-A07B-53390B78D54C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{594A6DFB-8302-425E-A07B-53390B78D54C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{594A6DFB-8302-425E-A07B-53390B78D54C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {1F5F8E32-F509-4AA2-B16E-BB4DD5ECE528}
+	EndGlobalSection
+EndGlobal
