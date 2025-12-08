@@ -163,11 +163,22 @@ namespace Barkod
 
             try
             {
-                // 1. FATURA KAYDI (Aynen kalıyor)
+                // GÜNLÜK FATURA NO HESAPLAMA (GARANTİ YÖNTEM)
+                // Transaction içinde olduğumuz için çakışma olmaz.
+                // Bugünün tarihine ait en yüksek numarayı bul, yoksa 0 al, sonra 1 ekle.
+                string sqlNo = @"SELECT ISNULL(MAX(FaturaNo), 0) + 1 FROM Faturalar 
+                                 WHERE CONVERT(DATE, Tarih) = CONVERT(DATE, @bugun)";
+
+                SqlCommand cmdNo = new SqlCommand(sqlNo, baglanti, islem);
+                cmdNo.Parameters.AddWithValue("@bugun", DateTime.Now);
+
+                int yeniFaturaNo = Convert.ToInt32(cmdNo.ExecuteScalar());
+
+                // 1. FATURA KAYDI (FaturaNo parametresini ekledik)
                 string sqlFatura = @"INSERT INTO Faturalar 
-                            (KisiId, Tarih, OdemeTipi, GenelToplam, TutarNakit, TutarKrediKarti, TutarVeresiye) 
-                            VALUES (@kisi, @tarih, @tip, @toplam, @nakit, @kart, @veresiye); 
-                            SELECT SCOPE_IDENTITY();";
+                                    (KisiId, Tarih, OdemeTipi, GenelToplam, TutarNakit, TutarKrediKarti, TutarVeresiye, FaturaNo) 
+                                    VALUES (@kisi, @tarih, @tip, @toplam, @nakit, @kart, @veresiye, @fno); 
+                                    SELECT SCOPE_IDENTITY();";
 
                 SqlCommand cmdFatura = new SqlCommand(sqlFatura, baglanti, islem);
                 cmdFatura.Parameters.AddWithValue("@kisi", musteriId);
@@ -177,10 +188,11 @@ namespace Barkod
                 cmdFatura.Parameters.AddWithValue("@nakit", nakit);
                 cmdFatura.Parameters.AddWithValue("@kart", kart);
                 cmdFatura.Parameters.AddWithValue("@veresiye", veresiye);
+                cmdFatura.Parameters.AddWithValue("@fno", yeniFaturaNo); // İşte burası
 
                 sonKesilenFaturaId = Convert.ToInt32(cmdFatura.ExecuteScalar());
 
-                // 2. SATIRLARI KAYDET VE HAREKET EKLE (DÜZELTİLEN KISIM)
+                // 2. SATIRLARI KAYDET VE HAREKET EKLE (Aynen Kalıyor)
                 foreach (DataRow row in dtSepet.Rows)
                 {
                     if (row.RowState == DataRowState.Deleted) continue;
@@ -190,41 +202,37 @@ namespace Barkod
                     decimal fiyat = Convert.ToDecimal(row["SatisFiyati"]);
                     decimal tutar = Convert.ToDecimal(row["Tutar"]);
 
-                    // Fatura Satırları (Detay)
+                    // Fatura Satırları
                     string sqlSatir = @"INSERT INTO FaturaSatirlar (FaturaId, UrunId, Miktar, AlisFiyati, SatisFiyati, Tutar) 
-                                VALUES (@fid, @uid, @mik, @alis, @satis, @tut)";
+                                        VALUES (@fid, @uid, @mik, @alis, @satis, @tut)";
                     SqlCommand cmdSatir = new SqlCommand(sqlSatir, baglanti, islem);
                     cmdSatir.Parameters.AddWithValue("@fid", sonKesilenFaturaId);
                     cmdSatir.Parameters.AddWithValue("@uid", urunId);
                     cmdSatir.Parameters.AddWithValue("@mik", miktar);
-                    cmdSatir.Parameters.AddWithValue("@alis", row["AlisFiyati"]); // Grid'den gelen gizli alış fiyatı
+                    cmdSatir.Parameters.AddWithValue("@alis", row["AlisFiyati"]);
                     cmdSatir.Parameters.AddWithValue("@satis", fiyat);
                     cmdSatir.Parameters.AddWithValue("@tut", tutar);
                     cmdSatir.ExecuteNonQuery();
 
-                    // --- HAREKETLER TABLOSUNA KAYIT (DÜZELTİLDİ) ---
-                    // Senin tablonun sütun isimlerine tam uyumlu:
-                    // Satış olduğu için -> girismiktari: 0, cikismiktari: Satılan Adet
-                    // Kalan Miktar Hesabı: (Tüm Girişler - Tüm Çıkışlar) - Şu anki Çıkış
-
+                    // Hareket Ekle (Kalan Miktar Hesabı ile)
                     string sqlHareket = @"INSERT INTO Hareketler 
-                                  (urun_id, kisi_id, girismiktari, cikismiktari, birimfiyat, toplamtutar, kalanmiktar, tarih)
-                                  VALUES 
-                                  (@uid, @kid, 0, @mik, @fiyat, @tut, 
-                                  (SELECT ISNULL(SUM(girismiktari - cikismiktari), 0) FROM Hareketler WHERE urun_id = @uid) - @mik,
-                                  @tarih)";
+                                          (urun_id, kisi_id, girismiktari, cikismiktari, birimfiyat, toplamtutar, kalanmiktar, tarih)
+                                          VALUES 
+                                          (@uid, @kid, 0, @mik, @fiyat, @tut, 
+                                          (SELECT ISNULL(SUM(girismiktari - cikismiktari), 0) FROM Hareketler WHERE urun_id = @uid) - @mik,
+                                          @tarih)";
 
                     SqlCommand cmdHareket = new SqlCommand(sqlHareket, baglanti, islem);
                     cmdHareket.Parameters.AddWithValue("@uid", urunId);
                     cmdHareket.Parameters.AddWithValue("@kid", musteriId);
-                    cmdHareket.Parameters.AddWithValue("@mik", miktar); // Çıkış miktarı (Satılan)
+                    cmdHareket.Parameters.AddWithValue("@mik", miktar);
                     cmdHareket.Parameters.AddWithValue("@fiyat", fiyat);
                     cmdHareket.Parameters.AddWithValue("@tut", tutar);
                     cmdHareket.Parameters.AddWithValue("@tarih", DateTime.Now);
                     cmdHareket.ExecuteNonQuery();
                 }
 
-                // 3. BAKİYE GÜNCELLEME (Aynen kalıyor)
+                // 3. BAKİYE GÜNCELLEME
                 if (veresiye > 0)
                 {
                     SqlCommand cmdBakiye = new SqlCommand("UPDATE Kisiler SET Bakiye = Bakiye + @tutar WHERE Id=@kisi", baglanti, islem);
