@@ -4,21 +4,21 @@ using System.Data.SqlClient;
 using System.Drawing;
 using System.Drawing.Printing;
 using System.Windows.Forms;
+using System.Collections.Generic;
 
 namespace Barkod
 {
     public partial class Form1 : Form
     {
-        // BAĞLANTI ADRESİ (Kendi sunucuna göre ayarla)
+        // --- VERİTABANI BAĞLANTISI ---
         SqlConnection baglanti = new SqlConnection(@"Data Source=.;Initial Catalog=BakkalDB;Integrated Security=True");
 
         DataTable dtSepet = new DataTable();
         decimal genelToplam = 0;
         int sonKesilenFaturaId = 0;
-        bool hesaplaniyor = false;
 
-        // Hesap Makinesi Değişkenleri
-        bool islemTiklandi = false;
+        // Hesaplama kilidi (Sonsuz döngüyü engeller)
+        bool hesaplaniyor = false;
 
         public Form1()
         {
@@ -26,18 +26,22 @@ namespace Barkod
         }
 
         string isletmeAdi = "", isletmeAdres = "", isletmeIlce = "", isletmeIl = "", isletmeTel = "";
+
         private void Form1_Load(object sender, EventArgs e)
         {
-            AyarlariGetir(); // Yeni metod
+            AyarlariGetir();
             GridTasarim();
             MusterileriYukle();
             HizliButonlariDoldur();
             txtBarkod.Focus();
 
-            // Grid Olayları (Sadece silme işlemi için)
+            // Olayları Bağla
             gridSepet.CellContentClick += gridSepet_CellContentClick;
+            gridSepet.CellValueChanged += gridSepet_CellValueChanged;
+            gridSepet.DataError += gridSepet_DataError;
         }
 
+        // --- 1. İŞLETME BİLGİLERİ ---
         void AyarlariGetir()
         {
             try
@@ -59,11 +63,7 @@ namespace Barkod
             finally { baglanti.Close(); }
         }
 
-
-
-
-
-        // --- TASARIM VE AYARLAR ---
+        // --- 2. GRID YAPISI ---
         void GridTasarim()
         {
             if (dtSepet.Columns.Count == 0)
@@ -76,68 +76,78 @@ namespace Barkod
                 // Gizli Kolonlar
                 dtSepet.Columns.Add("UrunId", typeof(int));
                 dtSepet.Columns.Add("AlisFiyati", typeof(decimal));
-                dtSepet.Columns.Add("KdvOrani", typeof(int)); // YENİ EKLENDİ
+                dtSepet.Columns.Add("KdvOrani", typeof(int));
             }
 
             gridSepet.DataSource = dtSepet;
 
-            // Gizlemeler
             gridSepet.Columns["UrunId"].Visible = false;
             gridSepet.Columns["AlisFiyati"].Visible = false;
-            gridSepet.Columns["KdvOrani"].Visible = false; // Müşteri görmesin
+            gridSepet.Columns["KdvOrani"].Visible = false;
 
-            // Başlıklar
             gridSepet.Columns["UrunAdi"].HeaderText = "Ürün Adı";
             gridSepet.Columns["SatisFiyati"].HeaderText = "Fiyat";
-            gridSepet.Columns["Adet"].HeaderText = "Miktar";
-            gridSepet.Columns["Tutar"].HeaderText = "Toplam";
+            gridSepet.Columns["Adet"].HeaderText = "Adet";
+            gridSepet.Columns["Tutar"].HeaderText = "Top.";
 
-            // Stil Ayarları (Aynen kalsın)
             gridSepet.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             gridSepet.RowHeadersVisible = false;
             gridSepet.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            gridSepet.RowTemplate.Height = 40;
-            gridSepet.DefaultCellStyle.Font = new Font("Segoe UI", 12F);
-            gridSepet.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
-            gridSepet.ColumnHeadersHeight = 50;
-            gridSepet.ReadOnly = true;
+            gridSepet.RowTemplate.Height = 35;
+            gridSepet.DefaultCellStyle.Font = new Font("Segoe UI", 11F);
+            gridSepet.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
 
+            gridSepet.ReadOnly = false;
+            gridSepet.Columns["Barkod"].ReadOnly = true;
+            gridSepet.Columns["UrunAdi"].ReadOnly = true;
+            gridSepet.Columns["Tutar"].ReadOnly = true;
+
+            // Sil Butonu
             if (!gridSepet.Columns.Contains("btnSil"))
             {
                 DataGridViewButtonColumn btnSil = new DataGridViewButtonColumn();
-                btnSil.Text = "SİL";
+                btnSil.Text = "X";
                 btnSil.Name = "btnSil";
                 btnSil.UseColumnTextForButtonValue = true;
                 btnSil.FlatStyle = FlatStyle.Flat;
                 btnSil.DefaultCellStyle.BackColor = Color.Crimson;
                 btnSil.DefaultCellStyle.ForeColor = Color.White;
+                btnSil.Width = 40;
                 gridSepet.Columns.Add(btnSil);
             }
         }
 
-        // --- MÜŞTERİ YÜKLEME ---
-        void MusterileriYukle()
+        // --- 3. HESAPLAMA VE GRID OLAYLARI ---
+        private void gridSepet_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
+            if (hesaplaniyor || e.RowIndex < 0) return;
+
             try
             {
-                SqlDataAdapter da = new SqlDataAdapter("SELECT Id, AdSoyad, Bakiye FROM Kisiler ORDER BY AdSoyad", baglanti);
-                DataTable dtMusteri = new DataTable();
-                da.Fill(dtMusteri);
+                hesaplaniyor = true;
+                DataGridViewRow row = gridSepet.Rows[e.RowIndex];
+                string kolunAdi = gridSepet.Columns[e.ColumnIndex].Name;
 
-                // ComboBox Ayarları
-                cmbKisiler.DataSource = dtMusteri;
-                cmbKisiler.DisplayMember = "AdSoyad";
-                cmbKisiler.ValueMember = "Id";
+                int adet = row.Cells["Adet"].Value != DBNull.Value ? Convert.ToInt32(row.Cells["Adet"].Value) : 0;
+                decimal fiyat = row.Cells["SatisFiyati"].Value != DBNull.Value ? Convert.ToDecimal(row.Cells["SatisFiyati"].Value) : 0;
 
-                // Arama Özelliği Açık
-                cmbKisiler.DropDownStyle = ComboBoxStyle.DropDown;
-                cmbKisiler.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmbKisiler.AutoCompleteSource = AutoCompleteSource.ListItems;
+                if (kolunAdi == "Adet" || kolunAdi == "SatisFiyati")
+                {
+                    row.Cells["Tutar"].Value = adet * fiyat;
+                }
+
+                hesaplaniyor = false;
+                ToplamHesapla();
             }
-            catch (Exception ex) { MessageBox.Show("Müşteri hatası: " + ex.Message); }
+            catch { hesaplaniyor = false; }
         }
 
-        // --- SİLME İŞLEMİ ---
+        private void gridSepet_DataError(object sender, DataGridViewDataErrorEventArgs e)
+        {
+            e.Cancel = true;
+            MessageBox.Show("Lütfen geçerli bir sayı giriniz.", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
         private void gridSepet_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex >= 0 && gridSepet.Columns[e.ColumnIndex].Name == "btnSil")
@@ -150,119 +160,34 @@ namespace Barkod
             }
         }
 
-        // --- MERKEZİ SATIŞ KAYDETME METODU ---
-        void SatisKaydet(decimal nakit, decimal kart, decimal veresiye, string odemeTipiMetin)
+        void ToplamHesapla()
         {
-            if (dtSepet.Rows.Count == 0) { MessageBox.Show("Sepet boş!"); return; }
-
-            if (cmbKisiler.SelectedValue == null) { MessageBox.Show("Lütfen müşteri seçiniz!"); return; }
-            int musteriId = Convert.ToInt32(cmbKisiler.SelectedValue);
-
-            if (baglanti.State == ConnectionState.Closed) baglanti.Open();
-            SqlTransaction islem = baglanti.BeginTransaction();
-
-            try
+            genelToplam = 0;
+            foreach (DataRow row in dtSepet.Rows)
             {
-                // GÜNLÜK FATURA NO HESAPLAMA (GARANTİ YÖNTEM)
-                // Transaction içinde olduğumuz için çakışma olmaz.
-                // Bugünün tarihine ait en yüksek numarayı bul, yoksa 0 al, sonra 1 ekle.
-                string sqlNo = @"SELECT ISNULL(MAX(FaturaNo), 0) + 1 FROM Faturalar 
-                                 WHERE CONVERT(DATE, Tarih) = CONVERT(DATE, @bugun)";
-
-                SqlCommand cmdNo = new SqlCommand(sqlNo, baglanti, islem);
-                cmdNo.Parameters.AddWithValue("@bugun", DateTime.Now);
-
-                int yeniFaturaNo = Convert.ToInt32(cmdNo.ExecuteScalar());
-
-                // 1. FATURA KAYDI (FaturaNo parametresini ekledik)
-                string sqlFatura = @"INSERT INTO Faturalar 
-                                    (KisiId, Tarih, OdemeTipi, GenelToplam, TutarNakit, TutarKrediKarti, TutarVeresiye, FaturaNo) 
-                                    VALUES (@kisi, @tarih, @tip, @toplam, @nakit, @kart, @veresiye, @fno); 
-                                    SELECT SCOPE_IDENTITY();";
-
-                SqlCommand cmdFatura = new SqlCommand(sqlFatura, baglanti, islem);
-                cmdFatura.Parameters.AddWithValue("@kisi", musteriId);
-                cmdFatura.Parameters.AddWithValue("@tarih", DateTime.Now);
-                cmdFatura.Parameters.AddWithValue("@tip", odemeTipiMetin);
-                cmdFatura.Parameters.AddWithValue("@toplam", genelToplam);
-                cmdFatura.Parameters.AddWithValue("@nakit", nakit);
-                cmdFatura.Parameters.AddWithValue("@kart", kart);
-                cmdFatura.Parameters.AddWithValue("@veresiye", veresiye);
-                cmdFatura.Parameters.AddWithValue("@fno", yeniFaturaNo); // İşte burası
-
-                sonKesilenFaturaId = Convert.ToInt32(cmdFatura.ExecuteScalar());
-
-                // 2. SATIRLARI KAYDET VE HAREKET EKLE (Aynen Kalıyor)
-                foreach (DataRow row in dtSepet.Rows)
-                {
-                    if (row.RowState == DataRowState.Deleted) continue;
-
-                    int urunId = Convert.ToInt32(row["UrunId"]);
-                    decimal miktar = Convert.ToDecimal(row["Adet"]);
-                    decimal fiyat = Convert.ToDecimal(row["SatisFiyati"]);
-                    decimal tutar = Convert.ToDecimal(row["Tutar"]);
-
-                    // Fatura Satırları
-                    string sqlSatir = @"INSERT INTO FaturaSatirlar (FaturaId, UrunId, Miktar, AlisFiyati, SatisFiyati, Tutar) 
-                                        VALUES (@fid, @uid, @mik, @alis, @satis, @tut)";
-                    SqlCommand cmdSatir = new SqlCommand(sqlSatir, baglanti, islem);
-                    cmdSatir.Parameters.AddWithValue("@fid", sonKesilenFaturaId);
-                    cmdSatir.Parameters.AddWithValue("@uid", urunId);
-                    cmdSatir.Parameters.AddWithValue("@mik", miktar);
-                    cmdSatir.Parameters.AddWithValue("@alis", row["AlisFiyati"]);
-                    cmdSatir.Parameters.AddWithValue("@satis", fiyat);
-                    cmdSatir.Parameters.AddWithValue("@tut", tutar);
-                    cmdSatir.ExecuteNonQuery();
-
-                    // Hareket Ekle (Kalan Miktar Hesabı ile)
-                    string sqlHareket = @"INSERT INTO Hareketler 
-                                          (urun_id, kisi_id, girismiktari, cikismiktari, birimfiyat, toplamtutar, kalanmiktar, tarih)
-                                          VALUES 
-                                          (@uid, @kid, 0, @mik, @fiyat, @tut, 
-                                          (SELECT ISNULL(SUM(girismiktari - cikismiktari), 0) FROM Hareketler WHERE urun_id = @uid) - @mik,
-                                          @tarih)";
-
-                    SqlCommand cmdHareket = new SqlCommand(sqlHareket, baglanti, islem);
-                    cmdHareket.Parameters.AddWithValue("@uid", urunId);
-                    cmdHareket.Parameters.AddWithValue("@kid", musteriId);
-                    cmdHareket.Parameters.AddWithValue("@mik", miktar);
-                    cmdHareket.Parameters.AddWithValue("@fiyat", fiyat);
-                    cmdHareket.Parameters.AddWithValue("@tut", tutar);
-                    cmdHareket.Parameters.AddWithValue("@tarih", DateTime.Now);
-                    cmdHareket.ExecuteNonQuery();
-                }
-
-                // 3. BAKİYE GÜNCELLEME
-                if (veresiye > 0)
-                {
-                    SqlCommand cmdBakiye = new SqlCommand("UPDATE Kisiler SET Bakiye = Bakiye + @tutar WHERE Id=@kisi", baglanti, islem);
-                    cmdBakiye.Parameters.AddWithValue("@tutar", veresiye);
-                    cmdBakiye.Parameters.AddWithValue("@kisi", musteriId);
-                    cmdBakiye.ExecuteNonQuery();
-                }
-
-                islem.Commit();
-
-                DialogResult cevap = MessageBox.Show("Satış Başarılı!\nFiş yazdırmak ister misiniz?", "Yazdır", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (cevap == DialogResult.Yes) FisYazdir();
-
-                dtSepet.Rows.Clear();
-                genelToplam = 0;
-                lblGenelToplam.Text = "0.00 ₺";
+                if (row.RowState != DataRowState.Deleted)
+                    genelToplam += Convert.ToDecimal(row["Tutar"]);
             }
-            catch (Exception ex)
-            {
-                islem.Rollback();
-                MessageBox.Show("Hata: " + ex.Message);
-            }
-            finally { baglanti.Close(); }
+            lblGenelToplam.Text = genelToplam.ToString("C2");
         }
 
-        // --- İŞ MANTIĞI VE DİĞERLERİ ---
+        // --- 4. VERİ YÜKLEME ---
+        void MusterileriYukle()
+        {
+            try
+            {
+                SqlDataAdapter da = new SqlDataAdapter("SELECT Id, AdSoyad FROM Kisiler ORDER BY AdSoyad", baglanti);
+                DataTable dtMusteri = new DataTable();
+                da.Fill(dtMusteri);
+                cmbKisiler.DataSource = dtMusteri;
+                cmbKisiler.DisplayMember = "AdSoyad";
+                cmbKisiler.ValueMember = "Id";
+            }
+            catch { }
+        }
 
         void HizliButonlariDoldur()
         {
-            // Önce temizle ve eventleri bağla
             for (int i = 1; i <= 12; i++)
             {
                 Control[] btn = this.Controls.Find("btnUrun" + i, true);
@@ -275,11 +200,11 @@ namespace Barkod
                     btn[0].Click += HizliUrun_Click;
                 }
             }
-            // Veritabanından doldur
+
             try
             {
                 if (baglanti.State == ConnectionState.Closed) baglanti.Open();
-                SqlCommand cmd = new SqlCommand("SELECT HizliTus, Barkod, UrunAdi FROM Urunler WHERE HizliTus IS NOT NULL AND HizliTus > 0", baglanti);
+                SqlCommand cmd = new SqlCommand("SELECT HizliTus, Barkod, UrunAdi FROM Urunler WHERE HizliTus > 0", baglanti);
                 SqlDataReader dr = cmd.ExecuteReader();
                 while (dr.Read())
                 {
@@ -304,6 +229,7 @@ namespace Barkod
             if (btn.Tag != null) UrunEkle(btn.Tag.ToString());
         }
 
+        // --- 5. ÜRÜN EKLEME ---
         private void txtBarkod_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
@@ -319,7 +245,6 @@ namespace Barkod
 
         void UrunEkle(string barkod)
         {
-            // Sepette var mı kontrolü (Aynı)
             foreach (DataRow row in dtSepet.Rows)
             {
                 if (row["Barkod"].ToString() == barkod)
@@ -334,17 +259,15 @@ namespace Barkod
             try
             {
                 if (baglanti.State == ConnectionState.Closed) baglanti.Open();
-                // KDV Oranını da çekiyoruz
                 SqlCommand cmd = new SqlCommand("SELECT * FROM Urunler WHERE Barkod=@b", baglanti);
                 cmd.Parameters.AddWithValue("@b", barkod);
                 SqlDataReader dr = cmd.ExecuteReader();
                 if (dr.Read())
                 {
-                    decimal satisFiyati = Convert.ToDecimal(dr["SatisFiyati"]);
-                    decimal alisFiyati = Convert.ToDecimal(dr["AlisFiyati"]);
-                    int kdv = Convert.ToInt32(dr["KdvOrani"]); // KDV geldi
-
-                    dtSepet.Rows.Add(barkod, dr["UrunAdi"], 1, satisFiyati, satisFiyati, dr["Id"], alisFiyati, kdv);
+                    decimal satis = Convert.ToDecimal(dr["SatisFiyati"]);
+                    decimal alis = Convert.ToDecimal(dr["AlisFiyati"]);
+                    int kdv = Convert.ToInt32(dr["KdvOrani"]);
+                    dtSepet.Rows.Add(barkod, dr["UrunAdi"], 1, satis, satis, dr["Id"], alis, kdv);
                 }
                 else
                 {
@@ -352,24 +275,234 @@ namespace Barkod
                 }
                 dr.Close();
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message); }
+            catch { }
             finally { baglanti.Close(); }
 
             ToplamHesapla();
         }
 
-        void ToplamHesapla()
+        // --- 6. SATIŞ KAYDETME (DÜZENLENDİ) ---
+        void SatisKaydet(decimal nakit, decimal kart, decimal veresiye, string odemeTipiMetin)
         {
-            genelToplam = 0;
-            foreach (DataRow row in dtSepet.Rows)
+            if (dtSepet.Rows.Count == 0) { MessageBox.Show("Sepet boş!"); return; }
+
+            // -- ONAY SORUSU --
+            DialogResult onay = MessageBox.Show(
+                $"Toplam: {genelToplam:C2}\nÖdeme: {odemeTipiMetin}\n\nSatışı onaylıyor musunuz?",
+                "Satış Onayı", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            if (onay != DialogResult.Yes) return;
+
+            if (cmbKisiler.SelectedValue == null) { MessageBox.Show("Müşteri seçiniz!"); return; }
+            int musteriId = Convert.ToInt32(cmbKisiler.SelectedValue);
+
+            if (baglanti.State == ConnectionState.Closed) baglanti.Open();
+            SqlTransaction islem = baglanti.BeginTransaction();
+
+            try
             {
-                if (row.RowState != DataRowState.Deleted)
-                    genelToplam += Convert.ToDecimal(row["Tutar"]);
+                // Fatura No
+                SqlCommand cmdNo = new SqlCommand("SELECT ISNULL(MAX(FaturaNo), 0) + 1 FROM Faturalar WHERE CONVERT(DATE, Tarih) = CONVERT(DATE, @bugun)", baglanti, islem);
+                cmdNo.Parameters.AddWithValue("@bugun", DateTime.Now);
+                int yeniFaturaNo = Convert.ToInt32(cmdNo.ExecuteScalar());
+
+                // Fatura Ekle
+                string sqlFatura = @"INSERT INTO Faturalar (KisiId, Tarih, OdemeTipi, GenelToplam, TutarNakit, TutarKrediKarti, TutarVeresiye, FaturaNo) 
+                                     VALUES (@kisi, @tarih, @tip, @toplam, @nakit, @kart, @veresiye, @fno); SELECT SCOPE_IDENTITY();";
+                SqlCommand cmdFat = new SqlCommand(sqlFatura, baglanti, islem);
+                cmdFat.Parameters.AddWithValue("@kisi", musteriId);
+                cmdFat.Parameters.AddWithValue("@tarih", DateTime.Now);
+                cmdFat.Parameters.AddWithValue("@tip", odemeTipiMetin);
+                cmdFat.Parameters.AddWithValue("@toplam", genelToplam);
+                cmdFat.Parameters.AddWithValue("@nakit", nakit);
+                cmdFat.Parameters.AddWithValue("@kart", kart);
+                cmdFat.Parameters.AddWithValue("@veresiye", veresiye);
+                cmdFat.Parameters.AddWithValue("@fno", yeniFaturaNo);
+
+                sonKesilenFaturaId = Convert.ToInt32(cmdFat.ExecuteScalar());
+
+                // Detaylar
+                foreach (DataRow row in dtSepet.Rows)
+                {
+                    if (row.RowState == DataRowState.Deleted) continue;
+
+                    int uid = Convert.ToInt32(row["UrunId"]);
+                    decimal miktar = Convert.ToDecimal(row["Adet"]);
+                    decimal fiyat = Convert.ToDecimal(row["SatisFiyati"]);
+                    decimal tutar = Convert.ToDecimal(row["Tutar"]);
+
+                    // Satır Ekle
+                    SqlCommand cmdSatir = new SqlCommand("INSERT INTO FaturaSatirlar (FaturaId, UrunId, Miktar, AlisFiyati, SatisFiyati, Tutar) VALUES (@fid, @uid, @mik, @alis, @satis, @tut)", baglanti, islem);
+                    cmdSatir.Parameters.AddWithValue("@fid", sonKesilenFaturaId);
+                    cmdSatir.Parameters.AddWithValue("@uid", uid);
+                    cmdSatir.Parameters.AddWithValue("@mik", miktar);
+                    cmdSatir.Parameters.AddWithValue("@alis", row["AlisFiyati"]);
+                    cmdSatir.Parameters.AddWithValue("@satis", fiyat);
+                    cmdSatir.Parameters.AddWithValue("@tut", tutar);
+                    cmdSatir.ExecuteNonQuery();
+
+                    // Stok Hareket
+                    string sqlHar = @"INSERT INTO Hareketler (urun_id, kisi_id, girismiktari, cikismiktari, birimfiyat, toplamtutar, kalanmiktar, tarih) 
+                                      VALUES (@uid, @kid, 0, @mik, @fiyat, @tut, 
+                                      (SELECT ISNULL(SUM(girismiktari - cikismiktari), 0) FROM Hareketler WHERE urun_id = @uid) - @mik, @tarih)";
+                    SqlCommand cmdHar = new SqlCommand(sqlHar, baglanti, islem);
+                    cmdHar.Parameters.AddWithValue("@uid", uid);
+                    cmdHar.Parameters.AddWithValue("@kid", musteriId);
+                    cmdHar.Parameters.AddWithValue("@mik", miktar);
+                    cmdHar.Parameters.AddWithValue("@fiyat", fiyat);
+                    cmdHar.Parameters.AddWithValue("@tut", tutar);
+                    cmdHar.Parameters.AddWithValue("@tarih", DateTime.Now);
+                    cmdHar.ExecuteNonQuery();
+                }
+
+                if (veresiye > 0)
+                {
+                    SqlCommand cmdBak = new SqlCommand("UPDATE Kisiler SET Bakiye = Bakiye + @tutar WHERE Id=@kisi", baglanti, islem);
+                    cmdBak.Parameters.AddWithValue("@tutar", veresiye);
+                    cmdBak.Parameters.AddWithValue("@kisi", musteriId);
+                    cmdBak.ExecuteNonQuery();
+                }
+
+                islem.Commit();
+
+                // -- OTOMATİK FİŞ YAZDIRMA --
+                FisYazdir();
+
+                // Temizlik
+                dtSepet.Rows.Clear();
+                genelToplam = 0;
+                lblGenelToplam.Text = "0.00 ₺";
             }
-            lblGenelToplam.Text = genelToplam.ToString("C2");
+            catch (Exception ex)
+            {
+                islem.Rollback();
+                MessageBox.Show("Hata: " + ex.Message);
+            }
+            finally { baglanti.Close(); }
         }
 
-        // --- BUTON YÖNLENDİRMELERİ ---
+        // --- 7. FİŞ VE YAZDIRMA (DÜZENLENDİ - TERMAL) ---
+        void FisYazdir()
+        {
+            PrintDocument pd = new PrintDocument();
+            pd.PrintPage += new PrintPageEventHandler(FisTasarimi);
+
+            // Termal Boyut Hesabı (80mm Genişlik, Dinamik Yükseklik)
+            // Header ~280px + (Satır Sayısı * 30px) + Footer
+            int satirSayisi = dtSepet.Rows.Count;
+            int hesaplananYukseklik = 350 + (satirSayisi * 30);
+
+            // 315 birim = yaklaşık 80mm
+            pd.DefaultPageSettings.PaperSize = new PaperSize("TermalFis", 315, hesaplananYukseklik);
+            pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+
+            PrintPreviewDialog onizleme = new PrintPreviewDialog();
+            onizleme.Document = pd;
+            onizleme.ShowIcon = false;
+            onizleme.Text = "Fiş Önizleme";
+            onizleme.Width = 420; // Telefon ekranı gibi dar
+            onizleme.Height = 600;
+            onizleme.PrintPreviewControl.Zoom = 1.0;
+
+            // Kullanıcı bu pencereyi kapatırsa yazdırmaz, yazıcı ikonuna basarsa yazdırır.
+            onizleme.ShowDialog();
+        }
+
+        void FisTasarimi(object sender, PrintPageEventArgs e)
+        {
+            Font fontNormal = new Font("Courier New", 8, FontStyle.Regular);
+            Font fontKalin = new Font("Courier New", 8, FontStyle.Bold);
+            Font fontBaslik = new Font("Courier New", 12, FontStyle.Bold);
+            Font fontKucuk = new Font("Courier New", 7, FontStyle.Regular);
+
+            Brush firca = Brushes.Black;
+            float genislik = 280; // Yazılabilir alan
+            float x = 5;
+            float y = 5;
+
+            StringFormat orta = new StringFormat() { Alignment = StringAlignment.Center };
+            StringFormat sag = new StringFormat() { Alignment = StringAlignment.Far };
+
+            // Başlık
+            e.Graphics.DrawString(isletmeAdi, fontBaslik, firca, new RectangleF(0, y, 315, 20), orta); y += 20;
+            e.Graphics.DrawString(isletmeAdres, fontNormal, firca, new RectangleF(0, y, 315, 15), orta); y += 15;
+            e.Graphics.DrawString(isletmeIlce + " / " + isletmeIl, fontNormal, firca, new RectangleF(0, y, 315, 15), orta); y += 15;
+            e.Graphics.DrawString("Tel: " + isletmeTel, fontNormal, firca, new RectangleF(0, y, 315, 15), orta); y += 25;
+
+            // Fiş No
+            string gunlukNo = "0";
+            try
+            {
+                if (baglanti.State == ConnectionState.Closed) baglanti.Open();
+                SqlCommand cmdNo = new SqlCommand("SELECT FaturaNo FROM Faturalar WHERE Id=" + sonKesilenFaturaId, baglanti);
+                var snc = cmdNo.ExecuteScalar();
+                if (snc != null) gunlukNo = snc.ToString();
+            }
+            catch { }
+            finally { if (baglanti.State == ConnectionState.Open) baglanti.Close(); }
+
+            e.Graphics.DrawString("Tarih: " + DateTime.Now.ToString("dd.MM.yyyy HH:mm"), fontNormal, firca, x, y); y += 12;
+            e.Graphics.DrawString("Fiş No: " + gunlukNo, fontKalin, firca, x, y); y += 15;
+            e.Graphics.DrawString("----------------------------------------", fontNormal, firca, x, y); y += 12;
+
+            e.Graphics.DrawString("ÜRÜN", fontKalin, firca, x, y);
+            e.Graphics.DrawString("TUTAR", fontKalin, firca, new RectangleF(x, y, genislik, 15), sag); y += 12;
+            e.Graphics.DrawString("----------------------------------------", fontNormal, firca, x, y); y += 12;
+
+            decimal topKdv = 0, topMatrah = 0;
+            Dictionary<int, decimal> kdvList = new Dictionary<int, decimal>();
+
+            // Ürün Listesi
+            foreach (DataRow row in dtSepet.Rows)
+            {
+                if (row.RowState == DataRowState.Deleted) continue;
+
+                string urun = row["UrunAdi"].ToString();
+                if (urun.Length > 18) urun = urun.Substring(0, 16) + "..";
+
+                decimal miktar = Convert.ToDecimal(row["Adet"]);
+                decimal fiyat = Convert.ToDecimal(row["SatisFiyati"]);
+                decimal tutar = Convert.ToDecimal(row["Tutar"]);
+                int kdv = Convert.ToInt32(row["KdvOrani"]);
+
+                decimal kdvHaric = tutar / (1 + (decimal)kdv / 100);
+                topKdv += (tutar - kdvHaric);
+                topMatrah += kdvHaric;
+
+                if (kdvList.ContainsKey(kdv)) kdvList[kdv] += (tutar - kdvHaric);
+                else kdvList.Add(kdv, (tutar - kdvHaric));
+
+                e.Graphics.DrawString(urun, fontNormal, firca, x, y);
+                e.Graphics.DrawString(tutar.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik, 15), sag); y += 12;
+                e.Graphics.DrawString($"{miktar} x {fiyat:N2}", fontKucuk, Brushes.Gray, x + 5, y); y += 15;
+            }
+
+            e.Graphics.DrawString("----------------------------------------", fontNormal, firca, x, y); y += 12;
+
+            // Alt Toplamlar
+            e.Graphics.DrawString("TOPLAM KDV:", fontNormal, firca, x, y);
+            e.Graphics.DrawString(topKdv.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik, 15), sag); y += 12;
+
+            e.Graphics.DrawString("KDV HARİÇ:", fontNormal, firca, x, y);
+            e.Graphics.DrawString(topMatrah.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik, 15), sag); y += 12;
+
+            foreach (var k in kdvList)
+            {
+                e.Graphics.DrawString($"KDV %{k.Key}:", fontKucuk, firca, x, y);
+                e.Graphics.DrawString(k.Value.ToString("N2"), fontKucuk, firca, new RectangleF(x, y, genislik, 15), sag); y += 10;
+            }
+
+            e.Graphics.DrawString("----------------------------------------", fontNormal, firca, x, y); y += 12;
+
+            // Genel Toplam
+            e.Graphics.DrawString("GENEL TOPLAM", fontBaslik, firca, x, y);
+            e.Graphics.DrawString(genelToplam.ToString("C2"), fontBaslik, firca, new RectangleF(x, y, genislik, 25), sag); y += 40;
+
+            e.Graphics.DrawString("MALİ DEĞERİ YOKTUR", fontKalin, firca, new RectangleF(0, y, 315, 15), orta); y += 15;
+            e.Graphics.DrawString("İYİ GÜNLER DİLERİZ", fontNormal, firca, new RectangleF(0, y, 315, 15), orta);
+        }
+
+        // --- 8. BUTONLAR ---
         private void btnNakit_Click(object sender, EventArgs e) => SatisKaydet(genelToplam, 0, 0, "Nakit");
         private void btnKrediKarti_Click(object sender, EventArgs e) => SatisKaydet(0, genelToplam, 0, "Kredi Kartı");
         private void btnVeresiye_Click(object sender, EventArgs e) => SatisKaydet(0, 0, genelToplam, "Veresiye");
@@ -383,193 +516,36 @@ namespace Barkod
             if (frm.IslemOnaylandi) SatisKaydet(frm.OdemeNakit, frm.OdemeKart, frm.OdemeVeresiye, "Parçalı");
         }
 
-        // --- HESAP MAKİNESİ BUTONLARI ---
         private void Numpad_Click(object sender, EventArgs e)
         {
             Button btn = (Button)sender;
-            if (islemTiklandi) { txtBarkod.Clear(); islemTiklandi = false; }
             txtBarkod.Text += btn.Text;
-            txtBarkod.Focus(); txtBarkod.SelectionStart = txtBarkod.Text.Length;
+            txtBarkod.Focus();
+            txtBarkod.SelectionStart = txtBarkod.Text.Length;
         }
 
         private void Islem_Click(object sender, EventArgs e)
         {
             Button btn = (Button)sender;
             string islemTuru = btn.Text;
-
             if (gridSepet.SelectedRows.Count == 0) return;
-
             DataGridViewRow row = gridSepet.SelectedRows[0];
             int mevcutAdet = Convert.ToInt32(row.Cells["Adet"].Value);
-            decimal fiyat = Convert.ToDecimal(row.Cells["SatisFiyati"].Value);
 
             if (islemTuru == "+") row.Cells["Adet"].Value = mevcutAdet + 1;
             else if (islemTuru == "-" && mevcutAdet > 1) row.Cells["Adet"].Value = mevcutAdet - 1;
-            else if (islemTuru == "*") // Adet Güncelleme
-            {
-                if (int.TryParse(txtBarkod.Text, out int yeniAdet) && yeniAdet > 0)
-                {
-                    row.Cells["Adet"].Value = yeniAdet;
-                    txtBarkod.Clear();
-                }
-            }
-
-            // Tutar Güncelle
-            int sonAdet = Convert.ToInt32(row.Cells["Adet"].Value);
-            row.Cells["Tutar"].Value = sonAdet * fiyat;
 
             ToplamHesapla();
             txtBarkod.Focus();
         }
 
+        private void btnTemizle_Click(object sender, EventArgs e)
+        {
+            txtBarkod.Clear();
+            txtBarkod.Focus();
+        }
+
+        // Eşittir butonu boş kalabilir veya ödeme ekranını açabilir
         private void btnEsittir_Click(object sender, EventArgs e) { }
-        private void btnTemizle_Click(object sender, EventArgs e) { txtBarkod.Clear(); }
-
-        // --- YAZDIRMA ---
-        void FisYazdir()
-        {
-            PrintDocument pd = new PrintDocument();
-            pd.PrintPage += new PrintPageEventHandler(FisTasarimi);
-            PrintPreviewDialog onizleme = new PrintPreviewDialog();
-            onizleme.Document = pd;
-            onizleme.Width = 800; onizleme.Height = 600; onizleme.PrintPreviewControl.Zoom = 1.5;
-            onizleme.ShowDialog();
-        }
-
-        void FisTasarimi(object sender, PrintPageEventArgs e)
-        {
-            // --- AYARLAR ---
-            Font fontNormal = new Font("Courier New", 8, FontStyle.Regular);
-            Font fontKalin = new Font("Courier New", 8, FontStyle.Bold);
-            Font fontBaslik = new Font("Courier New", 12, FontStyle.Bold); // Başlık biraz küçüldü
-
-            Brush firca = Brushes.Black;
-            float genislik = 280;
-            float x = 5;
-            float y = 5;
-
-            StringFormat orta = new StringFormat() { Alignment = StringAlignment.Center };
-            StringFormat sag = new StringFormat() { Alignment = StringAlignment.Far };
-            StringFormat sol = new StringFormat() { Alignment = StringAlignment.Near };
-
-            // --- BAŞLIK (DB'den Gelen) ---
-            e.Graphics.DrawString(isletmeAdi, fontBaslik, firca, new RectangleF(0, y, genislik, 20), orta);
-            y += 20;
-            e.Graphics.DrawString(isletmeAdres, fontNormal, firca, new RectangleF(0, y, genislik, 15), orta);
-            y += 15;
-            e.Graphics.DrawString(isletmeIlce + " / " + isletmeIl, fontNormal, firca, new RectangleF(0, y, genislik, 15), orta);
-            y += 15;
-            e.Graphics.DrawString("Tel: " + isletmeTel, fontNormal, firca, new RectangleF(0, y, genislik, 15), orta);
-            y += 20;
-
-            // --- FİŞ BİLGİLERİ ---
-            // Günlük Fatura No'yu veritabanından çekmemiz lazım çünkü satış bitince değişken sıfırlandı.
-            // Ancak SatisKaydet metodunda "sonKesilenFaturaId" değişkeni GLOBAL tutulduğu için
-            // O ID'ye ait FaturaNo'yu çekip yazdırabiliriz.
-
-            // (Basitlik adına: SatisKaydet'te faturaNo'yu global bir değişkene atayabilirsin veya
-            // sonKesilenFaturaId'den SQL ile çekebilirsin. Ben SQL ile çekiyorum garanti olsun.)
-
-            string gunlukNo = "0";
-            try
-            {
-                if (baglanti.State == ConnectionState.Closed) baglanti.Open();
-                SqlCommand cmdNo = new SqlCommand("SELECT FaturaNo FROM Faturalar WHERE Id=" + sonKesilenFaturaId, baglanti);
-                gunlukNo = cmdNo.ExecuteScalar().ToString();
-            }
-            catch { }
-            finally { if (baglanti.State == ConnectionState.Open) baglanti.Close(); }
-
-
-            e.Graphics.DrawString("Tarih: " + DateTime.Now.ToString("dd.MM.yyyy HH:mm"), fontNormal, firca, x, y);
-            y += 12;
-            e.Graphics.DrawString("Fiş No: " + gunlukNo, fontKalin, firca, x, y);
-            y += 15;
-
-            e.Graphics.DrawString("--------------------------------", fontNormal, firca, x, y);
-            y += 12;
-
-            // --- ÜRÜN LİSTESİ ---
-            e.Graphics.DrawString("ÜRÜN ADI", fontKalin, firca, x, y);
-            e.Graphics.DrawString("TUTAR", fontKalin, firca, new RectangleF(x, y, genislik - 15, 15), sag);
-            y += 12;
-            e.Graphics.DrawString("--------------------------------", fontNormal, firca, x, y);
-            y += 12;
-
-            // KDV Hesapları İçin Değişkenler
-            decimal toplamKDV = 0;
-            decimal matrahToplam = 0; // KDV hariç toplam
-                                      // KDV oranlarına göre gruplama yapmak için basit sözlük (Dictionary)
-            System.Collections.Generic.Dictionary<int, decimal> kdvGruplari = new System.Collections.Generic.Dictionary<int, decimal>();
-
-            foreach (DataRow row in dtSepet.Rows)
-            {
-                if (row.RowState == DataRowState.Deleted) continue;
-
-                string urunAdi = row["UrunAdi"].ToString();
-                if (urunAdi.Length > 20) urunAdi = urunAdi.Substring(0, 18) + "..";
-
-                decimal miktar = Convert.ToDecimal(row["Adet"]);
-                decimal satisFiyati = Convert.ToDecimal(row["SatisFiyati"]); // KDV DAHİL FİYAT
-                decimal satirTutar = Convert.ToDecimal(row["Tutar"]);
-                int kdvOrani = Convert.ToInt32(row["KdvOrani"]);
-
-                // KDV HESABI (İç yüzde yöntemi: Fiyat / (1 + Oran/100))
-                decimal kdvHaricTutar = satirTutar / (1 + (decimal)kdvOrani / 100);
-                decimal kdvTutari = satirTutar - kdvHaricTutar;
-
-                toplamKDV += kdvTutari;
-                matrahToplam += kdvHaricTutar;
-
-                // KDV Gruplarına Ekle
-                if (kdvGruplari.ContainsKey(kdvOrani))
-                    kdvGruplari[kdvOrani] += kdvTutari;
-                else
-                    kdvGruplari.Add(kdvOrani, kdvTutari);
-
-                // Satırı Yazdır
-                e.Graphics.DrawString(urunAdi, fontNormal, firca, x, y);
-                e.Graphics.DrawString(satirTutar.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik - 15, 15), sag);
-                y += 12;
-                e.Graphics.DrawString($"{miktar} Adet x {satisFiyati:N2} (%{kdvOrani})", new Font("Courier New", 7), Brushes.Gray, x + 5, y);
-                y += 15;
-            }
-
-            e.Graphics.DrawString("--------------------------------", fontNormal, firca, x, y);
-            y += 12;
-
-            // --- ALT TOPLAMLAR ---
-
-            // Toplam KDV
-            e.Graphics.DrawString("TOPLAM KDV:", fontNormal, firca, x, y);
-            e.Graphics.DrawString(toplamKDV.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik - 15, 15), sag);
-            y += 12;
-
-            // KDV Hariç Toplam
-            e.Graphics.DrawString("KDV HARİÇ TOPLAM:", fontNormal, firca, x, y);
-            e.Graphics.DrawString(matrahToplam.ToString("N2"), fontNormal, firca, new RectangleF(x, y, genislik - 15, 15), sag);
-            y += 12;
-
-            // KDV Dökümü (%1, %8, %18 vs.)
-            foreach (var kdv in kdvGruplari)
-            {
-                e.Graphics.DrawString($"KDV %{kdv.Key} Toplam:", new Font("Courier New", 7), firca, x, y);
-                e.Graphics.DrawString(kdv.Value.ToString("N2"), new Font("Courier New", 7), firca, new RectangleF(x, y, genislik - 15, 15), sag);
-                y += 10;
-            }
-
-            e.Graphics.DrawString("--------------------------------", fontNormal, firca, x, y);
-            y += 12;
-
-            // GENEL TOPLAM
-            e.Graphics.DrawString("GENEL TOPLAM", fontBaslik, firca, x, y);
-            e.Graphics.DrawString(genelToplam.ToString("C2"), fontBaslik, firca, new RectangleF(x, y, genislik - 15, 25), sag);
-            y += 40;
-
-            // --- ALT BİLGİ ---
-            e.Graphics.DrawString("MALİ DEĞERİ YOKTUR", fontKalin, firca, new RectangleF(0, y, genislik, 15), orta);
-            y += 15;
-            e.Graphics.DrawString("İYİ GÜNLER DİLERİZ", fontNormal, firca, new RectangleF(0, y, genislik, 15), orta);
-        }
     }
 }
