@@ -7,7 +7,7 @@ namespace Barkod
 {
     public partial class UrunForm : Form
     {
-        SqlConnection baglanti = new SqlConnection(@"Data Source=.;Initial Catalog=BakkalDB;Integrated Security=True");
+        SqlConnection baglanti = Veritabani.BaglantiGetir();
         int secilenUrunId = 0;
 
         public UrunForm()

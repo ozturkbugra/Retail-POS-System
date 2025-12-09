@@ -9,7 +9,7 @@ namespace Barkod
     public partial class StokGirisForm : Form
     {
         // İstersen burayı Veritabani.BaglantiGetir() olarak değiştirebilirsin önceki gibi
-        SqlConnection baglanti = new SqlConnection(@"Data Source=.;Initial Catalog=BakkalDB;Integrated Security=True");
+        SqlConnection baglanti = Veritabani.BaglantiGetir();
 
         DataTable dtSepet = new DataTable();
         decimal genelToplam = 0;

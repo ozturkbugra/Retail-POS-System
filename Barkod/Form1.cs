@@ -11,7 +11,8 @@ namespace Barkod
     public partial class Form1 : Form
     {
         // --- VERİTABANI BAĞLANTISI ---
-        SqlConnection baglanti = new SqlConnection(@"Data Source=.;Initial Catalog=BakkalDB;Integrated Security=True");
+        SqlConnection baglanti = Veritabani.BaglantiGetir();
+
 
         DataTable dtSepet = new DataTable();
         decimal genelToplam = 0;

@@ -47,7 +47,8 @@ namespace Barkod
             }
             else if (btn.Name == "btnBorcTakip")
             {
-                MessageBox.Show("Borç Takip Modülü Hazırlanıyor...", "Bilgi");
+                CariListeForm frm = new CariListeForm();
+                frm.ShowDialog();
                 // BorcTakipForm frm = new BorcTakipForm();
                 // frm.ShowDialog();
             }
@@ -57,6 +58,11 @@ namespace Barkod
                 // RaporForm frm = new RaporForm();
                 // frm.ShowDialog();
             }
+        }
+
+        private void AnaMenu_Load(object sender, EventArgs e)
+        {
+
         }
     }
 }

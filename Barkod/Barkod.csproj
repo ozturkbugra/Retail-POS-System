@@ -52,6 +52,18 @@
     <Compile Include="AnaMenu.Designer.cs">
       <DependentUpon>AnaMenu.cs</DependentUpon>
     </Compile>
+    <Compile Include="CariIslemForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CariIslemForm.Designer.cs">
+      <DependentUpon>CariIslemForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="CariListeForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CariListeForm.Designer.cs">
+      <DependentUpon>CariListeForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -96,8 +108,15 @@
     <Compile Include="UrunForm.Designer.cs">
       <DependentUpon>UrunForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="Veritabani.cs" />
     <EmbeddedResource Include="AnaMenu.resx">
       <DependentUpon>AnaMenu.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="CariIslemForm.resx">
+      <DependentUpon>CariIslemForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="CariListeForm.resx">
+      <DependentUpon>CariListeForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
@@ -141,6 +160,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="baglanti.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

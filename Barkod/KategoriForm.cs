@@ -8,7 +8,7 @@ namespace Barkod
 {
     public partial class KategoriForm : Form
     {
-        SqlConnection baglanti = new SqlConnection(@"Data Source=.;Initial Catalog=BakkalDB;Integrated Security=True");
+        SqlConnection baglanti = Veritabani.BaglantiGetir();
 
         int secilenKategoriId = 0;
 
